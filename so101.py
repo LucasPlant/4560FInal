@@ -108,8 +108,10 @@ class SO101:
 
         for i in range(cls.num_joints):
             xi = cls.joint_twists[i]
-            xi_prime_hat = transformation_adjoint(cumulative_transform) @ xi
-            Js[:, i] = xi_prime_hat
+            xi_hat = hat_twist(xi)
+            xi_prime_hat = cumulative_transform @ xi_hat @ np.linalg.inv(cumulative_transform)
+            xi_prime = unhat_twist(xi_prime_hat)
+            Js[:, i] = xi_prime
             cumulative_transform = cumulative_transform @ sp.linalg.expm(hat_twist(xi) * joint_angles[i])
 
         return Js
@@ -137,7 +139,9 @@ class SO101:
         for i in reversed(range(cls.num_joints)):
             xi = cls.joint_twists[i]
             cumulative_transform = sp.linalg.expm(hat_twist(xi) * joint_angles[i]) @ cumulative_transform
-            xi_dagger = transformation_adjoint(np.linalg.inv(cumulative_transform)) @ xi
+            xi_hat = hat_twist(xi)
+            xi_dagger_hat = np.linalg.inv(cumulative_transform) @ xi_hat @ cumulative_transform
+            xi_dagger = unhat_twist(xi_dagger_hat)
             Jb[:, i] = xi_dagger
 
         return Jb
@@ -154,36 +158,48 @@ class SO101:
     
     @classmethod
     def _inverse_kinematics(cls, desired_wge, initial_joint_angles=None, tol=1e-6, max_iters=1000, max_attempts=5):
-        """
-        Compute the inverse kinematics for the SO101 robot using Newton-Raphson method.
-        Angles in Radians
-        """
         start_time = time.time()
+
         def error_func(joint_angles):
             wge = cls._forward_kinematics(joint_angles)
-            error = tangent_space_error(wge, desired_wge)
-            error_sq = np.linalg.norm(np.dot(error.T, error))
-            return error_sq
+            error = tangent_space_error(wge, desired_wge)          # shape (6,) or (6,1)
 
-        def jacobian_func(joint_angles):
-            Js = cls._spatial_jacobian(joint_angles)
-            return Js
-        
+            error = np.asarray(error).reshape(-1)                  # make sure 1D
+            f = float(error @ error)                               # scalar
+
+            Jb = cls._body_jacobian(joint_angles)                  # 6×n
+            grad = -2.0 * (Jb.T @ error)                            # n×1 → n,
+            grad = np.asarray(grad).reshape(-1)                    # ensure 1D
+
+            # return f
+            return f, grad
+
         if initial_joint_angles is None:
             initial_joint_angles = np.zeros(cls.num_joints)
 
-        bounds = (cls.theta_min, cls.theta_max)
-        print("Joint limits (radians):", bounds)
+        # NOTE: BFGS ignores bounds. Use L-BFGS-B if you actually want these.
+        # bounds = list(zip(cls.theta_min, cls.theta_max))
 
-        result = sp.optimize.minimize(error_func, initial_joint_angles, method='BFGS', tol=tol, options={'maxiter': max_iters})
-        # result = sp.optimize.least_squares(error_func, initial_joint_angles, method='trf', bounds=bounds)
-        # result = sp.optimize.minimize(error_func, initial_joint_angles, jac=jacobian_func, method='BFGS', tol=tol, options={'maxiter': max_iters})
+        result = sp.optimize.minimize(
+            fun=error_func,
+            x0=initial_joint_angles,
+            method='BFGS',
+            jac=True,                      # tell SciPy fun returns (f, grad)
+            tol=tol,
+            options={'maxiter': max_iters}
+        )
 
         end_time = time.time()
+        print("================= Inverse Kinematics Result ================")
         print(f"IK computation time: {end_time - start_time:.4f} seconds")
+        f_final, _ = error_func(result.x)
+        # f_final = error_func(result.x)
         print(f"IK optimization success: {result.success}, message: {result.message}")
+        print(f"Final IK error norm: {np.sqrt(f_final)}")
+        print("============================================================")
 
         return result.x
+
     
     @classmethod
     def inverse_kinematics(cls, desired_wge, initial_joint_angles=None, tol=1e-6, max_iters=1000, max_attempts=5):
@@ -196,4 +212,3 @@ class SO101:
             initial_joint_angles = np.deg2rad(initial_joint_angles)
         ik_solution_rad = cls._inverse_kinematics(desired_wge, initial_joint_angles, tol, max_iters, max_attempts)
         return cls.joint_array_to_dict(np.rad2deg(ik_solution_rad))
-

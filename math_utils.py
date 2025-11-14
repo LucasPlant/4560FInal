@@ -26,7 +26,7 @@ def unhat_twist(xi_hat):
     w_skew = xi_hat[0:3, 0:3]
     v = xi_hat[0:3, 3]
     w = unskew_symmetric(w_skew)
-    return np.concatenate((v, w)).reshape((6,1))
+    return np.concatenate((v, w))
 
 def get_rotation(g):
     """Extract the rotation matrix from a transformation matrix T"""
