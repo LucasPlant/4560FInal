@@ -14,6 +14,12 @@ def hat_twist(xi):
                        [0, 0, 0, 0]])
     return xi_hat
 
+def unhat_twist(xi_hat):
+    w_skew = xi_hat[0:3, 0:3]
+    v = xi_hat[0:3, 3]
+    w = np.array([w_skew[2, 1], w_skew[0, 2], w_skew[1, 0]])
+    return np.concatenate((v, w)).reshape((6,1))
+
 class SO101:
     
     # Params
@@ -42,7 +48,6 @@ class SO101:
     joint_twists = {}
     for joint in joint_twist_info:
         w, q = joint_twist_info[joint]
-        print("joint:", joint, " w:", w.flatten(), " q:", q.flatten())
         v = -np.cross(w.flatten(), q.flatten()).reshape((3,1))
         joint_twists[joint] = np.vstack((v, w))
 
@@ -71,3 +76,18 @@ class SO101:
         for joint in joint_angles:
             joint_angles_rad[joint] = np.deg2rad(joint_angles[joint])
         return cls._forward_kinematics(joint_angles_rad)
+
+    @classmethod
+    def spacial_jacobian_(cls, joint_angles):
+        """
+        Compute the spacial Jacobian for the SO101 robot given joint angles.
+        Angles in Rad
+        """
+        J = np.zeros((6, len(cls.joint_twists)))
+
+        cumulative_transform = np.eye(4)
+
+        for i, joint in enumerate(cls.joint_twists):
+            xi = cls.joint_twists[joint]
+            xi_prime_hat = cumulative_transform @ hat_twist(xi) @ np.linalg.inv(cumulative_transform)
+
