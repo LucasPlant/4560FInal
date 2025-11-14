@@ -1,29 +1,13 @@
 # File full of utils for interacting with the SO101 robot
 import numpy as np
 import scipy as sp
-
-# Helper methods
-def hat_twist(xi):
-    """Convert a 6D twist vector into a 4x4 matrix in se(3)"""
-    v = xi[0:3].flatten()
-    w = xi[3:6].flatten()
-    w_skew = np.array([[0, -w[2], w[1]],
-                      [w[2], 0, -w[0]],
-                      [-w[1], w[0], 0]])
-    xi_hat = np.block([[w_skew, v.reshape((3,1))],
-                       [0, 0, 0, 0]])
-    return xi_hat
-
-def unhat_twist(xi_hat):
-    w_skew = xi_hat[0:3, 0:3]
-    v = xi_hat[0:3, 3]
-    w = np.array([w_skew[2, 1], w_skew[0, 2], w_skew[1, 0]])
-    return np.concatenate((v, w)).reshape((6,1))
+from math_utils import hat_twist, unhat_twist, joint_angles_to_rad, transformation_adjoint
 
 class SO101:
     
     # Params
-
+    ordered_joints = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll']
+    num_joints = len(ordered_joints)
 
     # Forward Kinematic Parameters
     x_offsets = [0.0388353, 0.0303992, 0.028, 0.1349, 0.0611, 0.1034]
@@ -37,19 +21,19 @@ class SO101:
     # maps the joint to a tuple of (w, q) for the twist
     # Gripper not included here
     joint_twist_info = {
-        'shoulder_pan':    (np.array([[0], [0], [-1]]), np.array([[x_offsets[0]], [0], [z_offsets[0]]])),
-        'shoulder_lift':   (np.array([[0], [1], [0]]), np.array([[sum(x_offsets[:2])], [0.0], [sum(z_offsets[:2])]])),
-        'elbow_flex':      (np.array([[0], [1], [0]]), np.array([[sum(x_offsets[:3])], [0.0], [sum(z_offsets)]])),
-        'wrist_flex':      (np.array([[0], [1], [0]]), np.array([[sum(x_offsets[:4])], [0.0], [sum(z_offsets)]])),
-        'wrist_roll':      (np.array([[-1], [0], [0]]), np.array([[sum(x_offsets[:5])], [0.0], [sum(z_offsets)]])),
+        'shoulder_pan':    (np.array([0, 0, -1]), np.array([x_offsets[0], 0, z_offsets[0]])),
+        'shoulder_lift':   (np.array([0, 1, 0]), np.array([sum(x_offsets[:2]), 0.0, sum(z_offsets[:2])])),
+        'elbow_flex':      (np.array([0, 1, 0]), np.array([sum(x_offsets[:3]), 0.0, sum(z_offsets)])),
+        'wrist_flex':      (np.array([0, 1, 0]), np.array([sum(x_offsets[:4]), 0.0, sum(z_offsets)])),
+        'wrist_roll':      (np.array([-1, 0, 0]), np.array([sum(x_offsets[:5]), 0.0, sum(z_offsets)])),
     }
 
     # Compute the spacial joint twists
-    joint_twists = {}
-    for joint in joint_twist_info:
+    joint_twists = []
+    for joint in ordered_joints:
         w, q = joint_twist_info[joint]
-        v = -np.cross(w.flatten(), q.flatten()).reshape((3,1))
-        joint_twists[joint] = np.vstack((v, w))
+        v = -np.cross(w, q)
+        joint_twists.append(np.concatenate((v, w)))
 
     @classmethod
     def _forward_kinematics(cls, joint_angles):
@@ -58,10 +42,10 @@ class SO101:
         Angles in Radians
         """
         wge = np.eye(4)
-        for joint in cls.joint_twists:
-            w = cls.joint_twists[joint]
+        for i, joint in enumerate(cls.ordered_joints):
+            xi = cls.joint_twists[i]
             theta = joint_angles[joint]
-            wge = wge @ sp.linalg.expm(hat_twist(w) * theta)
+            wge = wge @ sp.linalg.expm(hat_twist(xi) * theta)
         wge = wge @ cls.g0
         return wge
     
@@ -72,22 +56,50 @@ class SO101:
         Angles in DEGREES
         """
         # Convert to radians
-        joint_angles_rad = {}
-        for joint in joint_angles:
-            joint_angles_rad[joint] = np.deg2rad(joint_angles[joint])
-        return cls._forward_kinematics(joint_angles_rad)
+        return cls._forward_kinematics(joint_angles_to_rad(joint_angles))
 
     @classmethod
-    def spacial_jacobian_(cls, joint_angles):
+    def _spatial_jacobian(cls, joint_angles):
         """
-        Compute the spacial Jacobian for the SO101 robot given joint angles.
+        Compute the spatial Jacobian for the SO101 robot given joint angles.
         Angles in Rad
         """
-        J = np.zeros((6, len(cls.joint_twists)))
+        Js = np.zeros((6, len(cls.joint_twists)))
 
         cumulative_transform = np.eye(4)
 
-        for i, joint in enumerate(cls.joint_twists):
-            xi = cls.joint_twists[joint]
-            xi_prime_hat = cumulative_transform @ hat_twist(xi) @ np.linalg.inv(cumulative_transform)
+        for i, joint in enumerate(cls.ordered_joints):
+            xi = cls.joint_twists[i]
+            xi_prime_hat = transformation_adjoint(cumulative_transform) @ xi
+            Js[:, i] = xi_prime_hat
+            cumulative_transform = cumulative_transform @ sp.linalg.expm(hat_twist(xi) * joint_angles[joint])
+
+        return Js
+    
+    @classmethod
+    def spatial_jacobian(cls, joint_angles):
+        """
+        Compute the spatial Jacobian for the SO101 robot given joint angles.
+        Angles in DEGREES
+        """
+        # Convert to radians
+        return cls._spatial_jacobian(joint_angles_to_rad(joint_angles))
+    
+    @classmethod
+    def _body_jacobian(cls, joint_angles):
+        """
+        Compute the body Jacobian for the SO101 robot given joint angles.
+        Angles in Rad
+        """
+        Jb = np.zeros((6, len(cls.joint_twists)))
+
+        cumulative_transform = cls.g0.copy()
+
+        for i, joint in reversed(list(enumerate(cls.ordered_joints))):
+            xi = cls.joint_twists[i]
+            xi_dagger = transformation_adjoint(np.linalg.inv(cumulative_transform)) @ xi
+            Jb[:, i] = xi_prime_hat
+            cumulative_transform = sp.linalg.expm(hat_twist(xi) * joint_angles[joint]) @ cumulative_transform
+
+        return Jb
 
