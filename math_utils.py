@@ -1,4 +1,5 @@
 import numpy as np
+import scipy as sp
 
 # Helper methods
 
@@ -44,9 +45,9 @@ def transformation_adjoint(g):
                      [np.zeros((3,3)), R]])
     return Ad_T
 
-def joint_angles_to_rad(joint_angles_deg):
-    """Convert a dictionary of joint angles in degrees to radians"""
-    joint_angles_rad = {}
-    for joint in joint_angles_deg:
-        joint_angles_rad[joint] = np.deg2rad(joint_angles_deg[joint])
-    return joint_angles_rad
+def tangent_space_error(gw_current, gw_desired):
+    """Compute the error twist between current and desired transformation matrices"""
+    g_current_des = np.linalg.inv(gw_current) @ gw_desired
+    tangent_space_error_hat = sp.linalg.logm(g_current_des)
+    tangent_space_error = unhat_twist(tangent_space_error_hat)
+    return tangent_space_error

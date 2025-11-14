@@ -1,21 +1,35 @@
 # File full of utils for interacting with the SO101 robot
 import numpy as np
 import scipy as sp
-from math_utils import hat_twist, unhat_twist, joint_angles_to_rad, transformation_adjoint
+from math_utils import hat_twist, unhat_twist, transformation_adjoint, tangent_space_error
+import time
 
 class SO101:
     
     # Params
     ordered_joints = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll']
     num_joints = len(ordered_joints)
+    joint_limits = {
+        'shoulder_pan': (-1.919, 1.919),
+        'shoulder_lift': (-1.74, 1.74),
+        'elbow_flex': (-1.69, 1.69),
+        'wrist_flex': (-1.65, 1.65),
+        'wrist_roll': (-2.74, 2.84),
+        'gripper': (0, np.pi/2)
+    }
+    theta_min = np.zeros(num_joints)
+    theta_max = np.zeros(num_joints)
+    for i, joint in enumerate(ordered_joints):
+        theta_min[i] = joint_limits[joint][0]
+        theta_max[i] = joint_limits[joint][1]
 
     # Forward Kinematic Parameters
     x_offsets = [0.0388353, 0.0303992, 0.028, 0.1349, 0.0611, 0.1034]
     y_offsets = [0.0]
     z_offsets = [0.0624, 0.0542, 0.11257]
     g0 = np.array([[ 1,  0,  0, sum(x_offsets)],
-                   [  0,  1,  0, sum(y_offsets)],
-                   [  0,  1,  -1, sum(z_offsets)],
+                   [  0,  0,  -1, sum(y_offsets)],
+                   [  0,  1,  0, sum(z_offsets)],
                    [  0,  0,  0, 1.0]])
     
     # maps the joint to a tuple of (w, q) for the twist
@@ -36,15 +50,38 @@ class SO101:
         joint_twists.append(np.concatenate((v, w)))
 
     @classmethod
+    def joint_dict_to_array(cls, joint_dict):
+        """
+        Convert a dictionary of joint angles to a numpy array in the order defined by ordered_joints.
+        Angles in Radians
+        """
+        joint_array = np.zeros(cls.num_joints)
+        for i, joint in enumerate(cls.ordered_joints):
+            joint_array[i] = joint_dict[joint]
+        return joint_array
+    
+    @classmethod
+    def joint_array_to_dict(cls, joint_array):
+        """
+        Convert a numpy array of joint angles to a dictionary in the order defined by ordered_joints.
+        Angles in Radians
+        """
+        joint_dict = {}
+        for i, joint in enumerate(cls.ordered_joints):
+            joint_dict[joint] = joint_array[i]
+        joint_dict['gripper'] = 0.0  # Default gripper value
+        return joint_dict
+
+    @classmethod
     def _forward_kinematics(cls, joint_angles):
         """
         Compute the forward kinematics for the SO101 robot given joint angles.
         Angles in Radians
         """
         wge = np.eye(4)
-        for i, joint in enumerate(cls.ordered_joints):
+        for i in range(cls.num_joints):
             xi = cls.joint_twists[i]
-            theta = joint_angles[joint]
+            theta = joint_angles[i]
             wge = wge @ sp.linalg.expm(hat_twist(xi) * theta)
         wge = wge @ cls.g0
         return wge
@@ -56,7 +93,8 @@ class SO101:
         Angles in DEGREES
         """
         # Convert to radians
-        return cls._forward_kinematics(joint_angles_to_rad(joint_angles))
+        joint_angles = cls.joint_dict_to_array(joint_angles)
+        return cls._forward_kinematics(np.deg2rad(joint_angles))
 
     @classmethod
     def _spatial_jacobian(cls, joint_angles):
@@ -68,11 +106,11 @@ class SO101:
 
         cumulative_transform = np.eye(4)
 
-        for i, joint in enumerate(cls.ordered_joints):
+        for i in range(cls.num_joints):
             xi = cls.joint_twists[i]
             xi_prime_hat = transformation_adjoint(cumulative_transform) @ xi
             Js[:, i] = xi_prime_hat
-            cumulative_transform = cumulative_transform @ sp.linalg.expm(hat_twist(xi) * joint_angles[joint])
+            cumulative_transform = cumulative_transform @ sp.linalg.expm(hat_twist(xi) * joint_angles[i])
 
         return Js
     
@@ -83,7 +121,8 @@ class SO101:
         Angles in DEGREES
         """
         # Convert to radians
-        return cls._spatial_jacobian(joint_angles_to_rad(joint_angles))
+        joint_angles = cls.joint_dict_to_array(joint_angles)
+        return cls._spatial_jacobian(np.deg2rad(joint_angles))
     
     @classmethod
     def _body_jacobian(cls, joint_angles):
@@ -95,11 +134,66 @@ class SO101:
 
         cumulative_transform = cls.g0.copy()
 
-        for i, joint in reversed(list(enumerate(cls.ordered_joints))):
+        for i in reversed(range(cls.num_joints)):
             xi = cls.joint_twists[i]
+            cumulative_transform = sp.linalg.expm(hat_twist(xi) * joint_angles[i]) @ cumulative_transform
             xi_dagger = transformation_adjoint(np.linalg.inv(cumulative_transform)) @ xi
-            Jb[:, i] = xi_prime_hat
-            cumulative_transform = sp.linalg.expm(hat_twist(xi) * joint_angles[joint]) @ cumulative_transform
+            Jb[:, i] = xi_dagger
 
         return Jb
+    
+    @classmethod
+    def body_jacobian(cls, joint_angles):
+        """
+        Compute the body Jacobian for the SO101 robot given joint angles.
+        Angles in DEGREES
+        """
+        # Convert to radians
+        joint_angles = cls.joint_dict_to_array(joint_angles)
+        return cls._body_jacobian(np.deg2rad(joint_angles))
+    
+    @classmethod
+    def _inverse_kinematics(cls, desired_wge, initial_joint_angles=None, tol=1e-6, max_iters=1000, max_attempts=5):
+        """
+        Compute the inverse kinematics for the SO101 robot using Newton-Raphson method.
+        Angles in Radians
+        """
+        start_time = time.time()
+        def error_func(joint_angles):
+            wge = cls._forward_kinematics(joint_angles)
+            error = tangent_space_error(wge, desired_wge)
+            error_sq = np.linalg.norm(np.dot(error.T, error))
+            return error_sq
+
+        def jacobian_func(joint_angles):
+            Js = cls._spatial_jacobian(joint_angles)
+            return Js
+        
+        if initial_joint_angles is None:
+            initial_joint_angles = np.zeros(cls.num_joints)
+
+        bounds = (cls.theta_min, cls.theta_max)
+        print("Joint limits (radians):", bounds)
+
+        result = sp.optimize.minimize(error_func, initial_joint_angles, method='BFGS', tol=tol, options={'maxiter': max_iters})
+        # result = sp.optimize.least_squares(error_func, initial_joint_angles, method='trf', bounds=bounds)
+        # result = sp.optimize.minimize(error_func, initial_joint_angles, jac=jacobian_func, method='BFGS', tol=tol, options={'maxiter': max_iters})
+
+        end_time = time.time()
+        print(f"IK computation time: {end_time - start_time:.4f} seconds")
+        print(f"IK optimization success: {result.success}, message: {result.message}")
+
+        return result.x
+    
+    @classmethod
+    def inverse_kinematics(cls, desired_wge, initial_joint_angles=None, tol=1e-6, max_iters=1000, max_attempts=5):
+        """
+        Compute the inverse kinematics for the SO101 robot using Newton-Raphson method.
+        Angles in DEGREES
+        """
+        if initial_joint_angles is not None:
+            initial_joint_angles = cls.joint_dict_to_array(initial_joint_angles)
+            initial_joint_angles = np.deg2rad(initial_joint_angles)
+        ik_solution_rad = cls._inverse_kinematics(desired_wge, initial_joint_angles, tol, max_iters, max_attempts)
+        return cls.joint_array_to_dict(np.rad2deg(ik_solution_rad))
 
