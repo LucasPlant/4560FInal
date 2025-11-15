@@ -3,6 +3,12 @@ import scipy as sp
 
 # Helper methods
 
+def transformation_matrix(rotation, translation):
+    """Construct a 4x4 transformation matrix from a rotation matrix and translation vector"""
+    T = np.block([[rotation, translation.reshape((3,1))],
+                  [0, 0, 0, 1]])
+    return T
+
 def skew_symmetric(v):
     """Convert a 3D vector into a 3x3 skew-symmetric matrix"""
     return np.array([[0, -v[2], v[1]],

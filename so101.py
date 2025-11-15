@@ -1,7 +1,7 @@
 # File full of utils for interacting with the SO101 robot
 import numpy as np
 import scipy as sp
-from math_utils import hat_twist, unhat_twist, transformation_adjoint, tangent_space_error
+from math_utils import hat_twist, unhat_twist, transformation_adjoint, tangent_space_error, transformation_matrix
 import time
 
 class SO101:
@@ -157,7 +157,7 @@ class SO101:
         return cls._body_jacobian(np.deg2rad(joint_angles))
     
     @classmethod
-    def _inverse_kinematics(cls, desired_wge, initial_joint_angles=None, tol=1e-6, max_iters=1000, max_attempts=5):
+    def _inverse_kinematics(cls, desired_wge, initial_joint_angles=None, tol=1e-10, max_iters=1000, max_attempts=5):
         start_time = time.time()
 
         def error_func(joint_angles):
@@ -202,7 +202,7 @@ class SO101:
 
     
     @classmethod
-    def inverse_kinematics(cls, desired_wge, initial_joint_angles=None, tol=1e-6, max_iters=1000, max_attempts=5):
+    def inverse_kinematics(cls, desired_wge, initial_joint_angles=None, tol=1e-10, max_iters=1000, max_attempts=5):
         """
         Compute the inverse kinematics for the SO101 robot using Newton-Raphson method.
         Angles in DEGREES
