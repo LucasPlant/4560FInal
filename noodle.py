@@ -2,18 +2,18 @@ import math, time
 import numpy as np
 import cv2
 
-def approx_intrinsics(width=640, height=480, hfov_deg=60.0):
-    # crude intrinsics if no calibration: assume pinhole with given HFOV
-    hfov = math.radians(hfov_deg)
-    fx = (width / 2.0) / math.tan(hfov / 2.0)
-    fy = fx
-    cx = width / 2.0
-    cy = height / 2.0
-    K = np.array([[fx, 0, cx],
-                  [0, fy, cy],
-                  [0,  0,  1]], dtype=np.float64)
-    D = np.zeros((5, 1), dtype=np.float64)
-    return K, D
+# def approx_intrinsics(width=640, height=480, hfov_deg=60.0):
+#     # crude intrinsics if no calibration: assume pinhole with given HFOV
+#     hfov = math.radians(hfov_deg)
+#     fx = (width / 2.0) / math.tan(hfov / 2.0)
+#     fy = fx
+#     cx = width / 2.0
+#     cy = height / 2.0
+#     K = np.array([[fx, 0, cx],
+#                   [0, fy, cy],
+#                   [0,  0,  1]], dtype=np.float64)
+#     D = np.zeros((5, 1), dtype=np.float64)
+#     return K, D
 
 # Function that runs OpenCV to get one frame and detect ArUco markers
 def getPos_singleFrame(K, D):
@@ -51,19 +51,21 @@ def getPos_singleFrame(K, D):
     
     return None
 
-
-# Sample loop to illustrate usage
-K, D = approx_intrinsics(640, 480)
-lastPos = getPos_singleFrame(K, D)
-while True:
-    pos = getPos_singleFrame(K, D)
-    if pos is not None:
-        # Use the detected position
-        print(f"Marker Position: x={pos[0]:.3f}m, y={pos[1]:.3f}m, z={pos[2]:.3f}m")
-        lastPos = pos
-    else:
-        # Use last known position or handle no detection
-        if lastPos is not None:
-            print(f"Last known Marker Position: x={lastPos[0]:.3f}m, y={lastPos[1]:.3f}m, z={lastPos[2]:.3f}m")
+def main():
+    # Sample loop to illustrate usage
+    lastPos = getPos_singleFrame()
+    while True:
+        pos = getPos_singleFrame()
+        if pos is not None:
+            # Use the detected position
+            print(f"Marker Position: x={pos[0]:.3f}m, y={pos[1]:.3f}m, z={pos[2]:.3f}m")
+            lastPos = pos
         else:
-            print("No marker detected and no last known position.")
+            # Use last known position or handle no detection
+            if lastPos is not None:
+                print(f"Last known Marker Position: x={lastPos[0]:.3f}m, y={lastPos[1]:.3f}m, z={lastPos[2]:.3f}m")
+            else:
+                print("No marker detected and no last known position.")
+                
+if __name__ == "__main__":
+    main()
