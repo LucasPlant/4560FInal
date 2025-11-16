@@ -3,9 +3,18 @@ import numpy as np
 import scipy as sp
 from math_utils import hat_twist, unhat_twist, transformation_adjoint, tangent_space_error, transformation_matrix
 import time
+from so101_utils import setup_motors, load_calibration
+
+# CONFIGURATION VARIABLES
+
+DEFAULT_PORT_ID = "/dev/tty.usbmodem5A7A0548111" # REPLACE WITH YOUR PORT! 
+DEFAULT_ROBOT_NAME = "my_follower" # REPLACE WITH YOUR ROBOT NAME! 
 
 class SO101:
     
+    #===================================================================
+    ############### Robot Kinematics ################
+    #===================================================================
     # Params
     ordered_joints = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll']
     num_joints = len(ordered_joints)
@@ -53,7 +62,6 @@ class SO101:
     def joint_dict_to_array(cls, joint_dict):
         """
         Convert a dictionary of joint angles to a numpy array in the order defined by ordered_joints.
-        Angles in Radians
         """
         joint_array = np.zeros(cls.num_joints)
         for i, joint in enumerate(cls.ordered_joints):
@@ -61,7 +69,7 @@ class SO101:
         return joint_array
     
     @classmethod
-    def joint_array_to_dict(cls, joint_array):
+    def joint_array_to_dict(cls, joint_array, gripper_value=0.0):
         """
         Convert a numpy array of joint angles to a dictionary in the order defined by ordered_joints.
         Angles in Radians
@@ -69,7 +77,7 @@ class SO101:
         joint_dict = {}
         for i, joint in enumerate(cls.ordered_joints):
             joint_dict[joint] = joint_array[i]
-        joint_dict['gripper'] = 0.0  # Default gripper value
+        joint_dict['gripper'] = gripper_value
         return joint_dict
 
     @classmethod
@@ -212,3 +220,21 @@ class SO101:
             initial_joint_angles = np.deg2rad(initial_joint_angles)
         ik_solution_rad = cls._inverse_kinematics(desired_wge, initial_joint_angles, tol, max_iters, max_attempts)
         return cls.joint_array_to_dict(np.rad2deg(ik_solution_rad))
+
+    #===================================================================
+    ############### Robot Control ################
+    #===================================================================
+
+    def __init__(self, port = DEFAULT_PORT_ID, robot_name = DEFAULT_ROBOT_NAME):
+        self.calibration = load_calibration(robot_name)
+        self.bus = setup_motors(self.calibration, port)
+
+    def read_current_position(self):
+        return self.bus.sync_read("Present_Position")
+    
+    def set_position(self, joint_positions):
+        self.bus.sync_write("Goal_Position", joint_positions, normalize=True)
+
+    def __del__(self):
+        self.bus.torque_disabled()
+        self.bus.disconnect()
