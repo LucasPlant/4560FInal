@@ -63,12 +63,36 @@ def get_aruco_dict(name):
     key = name if name in mapping else "6X6_250"
     return cv2.aruco.getPredefinedDictionary(mapping[key])
 
+def get_marker_position(corners, marker_length, K, D):
+    """
+    Extract x, y, z position of a single ArUco marker.
+    
+    Args:
+        corners: Detected marker corners from ArUco detection
+        marker_length: Physical side length of marker in meters
+        K: Camera intrinsic matrix
+        D: Distortion coefficients
+    
+    Returns:
+        numpy array [x, y, z] in meters, or None if estimation fails
+    """
+    if corners is None or len(corners) == 0:
+        return None
+    
+    rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+        corners, marker_length, K, D
+    )
+    
+    # Extract translation vector (position)
+    position = tvecs[0].reshape(3)  # [x, y, z]
+    return position
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--camera", type=int, default=0, help="OpenCV camera index")
     ap.add_argument("--video", type=str, default="", help="Video file or stream URL")
     ap.add_argument("--dict", type=str, default="6X6_250", help="ArUco dictionary, e.g. 4X4_50, 6X6_250, APRILTAG_36H11")
-    ap.add_argument("--marker-length", type=float, default=0.05, help="Marker side length in meters")
+    ap.add_argument("--marker-length", type=float, default=0.058, help="Marker side length in meters")
     ap.add_argument("--calib", type=str, default=None, help="Calibration file (.npz or .yml/.yaml) with camera_matrix and dist_coeffs")
     ap.add_argument("--axis-scale", type=float, default=1.0, help="Axis draw length as a multiple of marker side length")
     ap.add_argument("--print-rate", type=float, default=10.0, help="Console print rate (Hz)")
@@ -151,8 +175,7 @@ def main():
                 rvec, tvec = rvecs[0].reshape(3), tvecs[0].reshape(3)
                 roll, pitch, yaw = rvec_to_euler_zyx(rvec)
                 print(
-                    f"ID {ids[0][0]} | t = [{tvec[0]: .3f}, {tvec[1]: .3f}, {tvec[2]: .3f}] m | "
-                    f"rpy(deg) = [{math.degrees(roll): .1f}, {math.degrees(pitch): .1f}, {math.degrees(yaw): .1f}]"
+                    get_marker_position(corners, args.marker_length, K, D)
                 )
                 last_print = now
 
