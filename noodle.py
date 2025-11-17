@@ -151,7 +151,8 @@ def getPos_singleFrame():
 
         t_c_a = tvecs[0].reshape(3, 1)
         d_e_a = (g_e_c @ np.block([[t_c_a], [1]]).reshape(4, 1))[0:3]
-        d_e_t = d_e_a - np.array([[0.3], [0.0], [0.0]])
+        # d_e_t = d_e_a - np.array([[0.3], [0.0], [0.0]])
+        d_e_t = d_e_a
 
         R_a_c = cv2.Rodrigues(rvecs[0])[0]
         R_c_t = R_a_c.T @ R_a_t
@@ -169,6 +170,8 @@ def getPos_singleFrame():
         avg = _accum_time / 30.0
         print(f"avg frame time (last 30): {avg*1000:.1f} ms -> {1.0/avg:.1f} FPS")
         _accum_time = 0.0
+
+    return d_e_t
 
     return np.block([[R_e_a, d_e_t], [0, 0, 0, 1]]) if d_e_t is not None and R_e_a is not None else None
 

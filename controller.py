@@ -11,7 +11,7 @@ loop_freq = 25  # Hz
 period = 1.0 / loop_freq
 # timeconstant = 10
 # kp = 1.0 / (loop_freq * timeconstant)  # proportional gain
-kp = 0.015  # proportional gain
+kp = 0.2  # proportional gain
 # ki = 0.001
 # error_i = np.zeros((3, 1))
 
@@ -45,24 +45,32 @@ while True:
     start_time = time.time()
 
     if counter % 5 == 0:
-        g_e_t = noodle.getPos_singleFrame()
+        d_e_t = noodle.getPos_singleFrame()
 
-        if g_e_t is None:
+        if d_e_t is None:
             print("No marker detected, holding position")
             # arm.set_position(arm.joint_array_to_dict(np.rad2deg(current_positions), gripper_value=20.0))
             delta_theta = np.zeros_like(current_positions)
         else:
             # compute the rotation needed to keep the tag in view
-            tangent_error = sp.linalg.logm(g_e_t)
-            xi = math_utils.unhat_twist(tangent_error)
+            azimuth_error = np.arctan2(d_e_t[2], d_e_t[0])
+            elevation_error = np.arctan2(d_e_t[1], d_e_t[0])
+            distance_error = d_e_t[0] - 0.3  # desired distance is 0.3m
+            xi = np.zeros((6, 1))
+            xi[4] = elevation_error  # rotation around z
+            xi[5] = azimuth_error     # rotation around y
+            # xi[0] = distance_error * 0.1    # translation along x
+
+
+            # tangent_error = sp.linalg.logm(g_e_t)
+            # xi = math_utils.unhat_twist(tangent_error)
             # Yaw around y is hard to control, so zero it out
-            xi[4] = xi[4] * 0.1
             print(f"Error twist: {xi}")
 
             Jb = arm._body_jacobian(current_positions)
             # Jb_translation = Jb[0:3, :]  # Extract translational part
             #damped pseudo-inverse for numerical stability
-            Jb_pinv = np.linalg.pinv(Jb, rcond=5e-1)
+            Jb_pinv = np.linalg.pinv(Jb, rcond=1e-3)
 
             delta_theta = (kp * Jb_pinv @ xi).flatten()
 
