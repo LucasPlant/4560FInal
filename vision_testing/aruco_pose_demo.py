@@ -101,6 +101,9 @@ def main():
     # video source
     src = args.video if args.video else args.camera
     cap = cv2.VideoCapture(src)
+    # Attempt to set the desired FPS (e.g., 30 FPS)
+    requested_fps = 30
+    cap.set(cv2.CAP_PROP_FPS, requested_fps)
     if not cap.isOpened():
         print("ERROR: could not open video source")
         sys.exit(1)
