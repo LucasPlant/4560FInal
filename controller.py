@@ -7,11 +7,13 @@ import noodle
 
 np.set_printoptions(precision=4, suppress=True)
 
-loop_freq = 15.0  # Hz
+loop_freq = 25  # Hz
 period = 1.0 / loop_freq
 # timeconstant = 10
 # kp = 1.0 / (loop_freq * timeconstant)  # proportional gain
-kp = 0.1  # proportional gain
+kp = 0.015  # proportional gain
+# ki = 0.001
+# error_i = np.zeros((3, 1))
 
 arm = so101.SO101()
 
@@ -32,45 +34,49 @@ arm = so101.SO101()
 
 # arm.set_position(arm.joint_array_to_dict([30, 0, 0, 0, 0, 40], gripper_value=20.0))
 
+counter = 0
+current_positions = None
+delta_theta = None
+theta_p1_rad = None
+current_positions_dict = arm.read_current_position()
+current_positions = np.deg2rad(arm.joint_dict_to_array(current_positions_dict))
+
 while True:
     start_time = time.time()
 
-    # Read current joint positions
-    current_positions_dict = arm.read_current_position()
-    current_positions = np.deg2rad(arm.joint_dict_to_array(current_positions_dict))
+    if counter % 5 == 0:
+        g_e_t = noodle.getPos_singleFrame()
 
-    d_e_t = noodle.getPos_singleFrame()
+        if g_e_t is None:
+            print("No marker detected, holding position")
+            # arm.set_position(arm.joint_array_to_dict(np.rad2deg(current_positions), gripper_value=20.0))
+            delta_theta = np.zeros_like(current_positions)
+        else:
+            # compute the rotation needed to keep the tag in view
+            tangent_error = sp.linalg.logm(g_e_t)
+            xi = math_utils.unhat_twist(tangent_error)
+            # Yaw around y is hard to control, so zero it out
+            xi[4] = xi[4] * 0.1
+            print(f"Error twist: {xi}")
 
-    if d_e_t is None:
-        print("No marker detected, holding position")
-        # arm.set_position(arm.joint_array_to_dict(np.rad2deg(current_positions), gripper_value=20.0))
-        time.sleep(period)
-        continue
+            Jb = arm._body_jacobian(current_positions)
+            # Jb_translation = Jb[0:3, :]  # Extract translational part
+            #damped pseudo-inverse for numerical stability
+            Jb_pinv = np.linalg.pinv(Jb, rcond=5e-1)
 
-    # tangent_error = sp.linalg.logm(g_e_target)
-    # xi = math_utils.unhat_twist(tangent_error)
-    # print(f"Error twist: {xi}")
+            delta_theta = (kp * Jb_pinv @ xi).flatten()
 
-    error = d_e_t
+            print(f"error {xi}")
+            print("current position", current_positions_dict)
+            print("delta theta", delta_theta)
+            print("-----")
+            print()
 
-    Jb = arm.body_jacobian(current_positions_dict)
-    Jb_translation = Jb[0:3, :]  # Extract translational part
-    Jb_pinv = np.linalg.pinv(Jb_translation)
-
-    theta_p1_rad = current_positions + (kp * Jb_pinv @ error).flatten()
-
-    theta_p1_deg = np.rad2deg(theta_p1_rad)
-
-    print(f"error {error}")
-    print("current position", current_positions_dict)
-    print("new positions", arm.joint_array_to_dict(theta_p1_deg, gripper_value=20.0))
-    print("step", np.rad2deg(theta_p1_rad) + np.rad2deg(current_positions))
-    print("-----")
-    print()
-
-    arm.set_position(arm.joint_array_to_dict(theta_p1_deg, gripper_value=20.0))
+    current_positions += delta_theta
+    arm.set_position(arm.joint_array_to_dict(np.rad2deg(current_positions), gripper_value=20.0))
 
     # Wait for next iteration
+    counter += 1
     end_time = time.time()
     elapsed = end_time - start_time
     # print(f"Loop time: {elapsed:.4f} seconds")
