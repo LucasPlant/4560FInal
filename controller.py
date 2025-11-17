@@ -37,7 +37,7 @@ while True:
             xi = np.zeros((6, 1))
             xi[4] = elevation_error  # rotation around z
             xi[5] = azimuth_error     # rotation around y
-            xi[1] = - d_e_t[1] * 5.0  # translation along y
+            xi[1] = - d_e_t[1] * 5.0 # translation along y
             xi[0] = (d_e_t[0] - 0.5) * 0.1    # translation along x
 
 
