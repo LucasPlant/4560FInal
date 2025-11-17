@@ -233,6 +233,9 @@ class SO101:
         return self.bus.sync_read("Present_Position")
     
     def set_position(self, joint_positions):
+        # clamp the joint angles to their max/min
+        # for i, joint in enumerate(self.ordered_joints):
+            # joint_positions[joint] = np.clip(joint_positions[joint], self.joint_limits[joint][0], self.joint_limits[joint][1])
         self.bus.sync_write("Goal_Position", joint_positions, normalize=True)
 
     def __del__(self):

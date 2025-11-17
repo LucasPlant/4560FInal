@@ -44,6 +44,17 @@ g_e_c = np.array([
     [0, 0, 0, 1]
 ])
 
+def Rx(theta):
+    c = np.cos(theta)
+    s = np.sin(theta)
+    return np.array([
+        [1, 0, 0],
+        [0, c, -s],
+        [0, s, c],
+    ])
+
+g_e_c = g_e_c
+
 R_a_t = np.array([
     [0, 0, -1],
     [0, 1, 0],
@@ -85,14 +96,17 @@ class CameraStream:
             self.cap.release()
         except Exception:
             pass
+    
+    def set(self, prop_id, value):
+        self.cap.set(prop_id, value)
 
 cap = CameraStream(0)
 # Attempt to set the desired FPS (e.g., 30 FPS)
 requested_fps = 30
-# cap.set(cv2.CAP_PROP_FPS, requested_fps)
-# cap.set(cv2.CAP_PROP_EXPOSURE, -6)  # Negative values = shorter exposure (try -4 to -8)
-# cap.set(cv2.CAP_PROP_BRIGHTNESS, 150)  # Range typically 0-255
-# cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # 0.25 = manual mode
+cap.set(cv2.CAP_PROP_FPS, requested_fps)
+cap.set(cv2.CAP_PROP_EXPOSURE, -6)  # Negative values = shorter exposure (try -4 to -8)
+cap.set(cv2.CAP_PROP_BRIGHTNESS, 150)  # Range typically 0-255
+cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # 0.25 = manual mode
 time.sleep(0.1)
 # Camera calibration (approximate)
 frame = cap.read()
